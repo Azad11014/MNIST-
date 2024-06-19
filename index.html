@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digit Recognizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f4f4f9;
+        }
+
+        h1 {
+            color: #333;
+            margin-top: 20px;
+        }
+
+        #canvas-container {
+            position: relative;
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #canvas {
+            border: 2px solid #333;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            touch-action: none; /* Prevent touch devices from scrolling */
+            border-radius: 10px;
+            width: 280px;  /* 10 times the MNIST size for easier drawing */
+            height: 280px; /* 10 times the MNIST size for easier drawing */
+        }
+
+        .button-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: 500;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        button.clear {
+            background-color: #f44336;
+            color: #fff;
+        }
+
+        button.predict {
+            background-color: #4caf50;
+            color: #fff;
+        }
+
+        button:hover {
+            opacity: 0.9;
+            transform: scale(1.05);
+        }
+
+        #result {
+            margin-top: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>Check Digit</h1>
+    <div id="canvas-container">
+        <canvas id="canvas" width="280" height="280"></canvas>
+    </div>
+    <div class="button-container">
+        <button class="clear" onclick="clearCanvas()">Clear</button>
+        <button class="predict" onclick="predictDigit()">Predict</button>
+    </div>
+    <h2 id="result"></h2>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let drawing = false;
+        let lastX = 0;
+        let lastY = 0;
+
+        function getMousePos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: evt.clientX - rect.left,
+                y: evt.clientY - rect.top
+            };
+        }
+
+        canvas.addEventListener('mousedown', (evt) => {
+            drawing = true;
+            const pos = getMousePos(canvas, evt);
+            lastX = pos.x;
+            lastY = pos.y;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            drawing = false;
+        });
+
+        canvas.addEventListener('mousemove', (evt) => {
+            if (drawing) {
+                const pos = getMousePos(canvas, evt);
+                drawLine(lastX, lastY, pos.x, pos.y);
+                lastX = pos.x;
+                lastY = pos.y;
+            }
+        });
+
+        canvas.addEventListener('touchstart', (evt) => {
+            evt.preventDefault();
+            drawing = true;
+            const touch = evt.touches[0];
+            const pos = getMousePos(canvas, touch);
+            lastX = pos.x;
+            lastY = pos.y;
+        });
+
+        canvas.addEventListener('touchend', () => {
+            drawing = false;
+        });
+
+        canvas.addEventListener('touchmove', (evt) => {
+            evt.preventDefault();
+            if (drawing) {
+                const touch = evt.touches[0];
+                const pos = getMousePos(canvas, touch);
+                drawLine(lastX, lastY, pos.x, pos.y);
+                lastX = pos.x;
+                lastY = pos.y;
+            }
+        });
+
+        function drawLine(x1, y1, x2, y2) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 10;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+            ctx.closePath();
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('result').innerText = '';
+        }
+
+        function preprocessCanvas() {
+            const offScreenCanvas = document.createElement('canvas');
+            const offScreenCtx = offScreenCanvas.getContext('2d');
+            offScreenCanvas.width = 28;
+            offScreenCanvas.height = 28;
+
+            // Draw the canvas content into the off-screen canvas and resize it
+            offScreenCtx.drawImage(canvas, 0, 0, 28, 28);
+
+            // Get the image data from the off-screen canvas
+            const imageData = offScreenCtx.getImageData(0, 0, 28, 28);
+            const data = imageData.data;
+
+            // Convert the image to grayscale and invert colors
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                // Calculate the grayscale value
+                const gray = 255 - (r * 0.299 + g * 0.587 + b * 0.114);
+                data[i] = gray;
+                data[i + 1] = gray;
+                data[i + 2] = gray;
+            }
+
+            // Put the processed image data back into the off-screen canvas
+            offScreenCtx.putImageData(imageData, 0, 0);
+
+            // Return the processed image as a base64 string
+            return offScreenCanvas.toDataURL();
+        }
+
+        function predictDigit() {
+            const dataURL = preprocessCanvas();
+            fetch('/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ image: dataURL })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('result').innerText = 'Predicted digit: ' + data.digit;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        // Initialize the canvas with a white background
+        clearCanvas();
+    </script>
+</body>
+</html>
